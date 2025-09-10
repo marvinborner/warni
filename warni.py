@@ -85,7 +85,7 @@ def handle_warning(warning, details):
     notify_user(title, description)
 
 
-def check_services():
+def check_services(api, seen):
     try:
         # Biwapp
         data = api.get_biwapp_map_data().value
@@ -118,12 +118,17 @@ def check_services():
         print("Exception: %s\n" % e)
 
 
-with nina.ApiClient() as api_client:
-    api = warnings_api.WarningsApi(api_client)
-    seen = Seen()
+def main():
+    with nina.ApiClient() as api_client:
+        api = warnings_api.WarningsApi(api_client)
+        seen = Seen()
 
-    while True:
-        print("checking...")
-        check_services()
-        seen.sync()
-        time.sleep(60 * INTERVAL)
+        while True:
+            print("checking...")
+            check_services(api, seen)
+            seen.sync()
+            time.sleep(60 * INTERVAL)
+
+
+if __name__ == "__main__":
+    main()

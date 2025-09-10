@@ -1,3 +1,4 @@
+setuptools
 de-nina
 shapely
 notify_py
