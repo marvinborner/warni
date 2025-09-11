@@ -8,8 +8,14 @@ setup(
     author="Marvin Borner",
     author_email="git@marvinborner.de",
     py_modules=["warni"],
-    install_requires=["de-nina", "shapely", "notify_py", "python-dotenv"],
-    package_data={"": [".env"]},
+    install_requires=[
+        "de-nina",
+        "shapely",
+        "notify_py",
+        "python-dotenv",
+        "platformdirs",
+        "tomli-w",
+    ],
     entry_points={
         "console_scripts": ["warni=warni:main"],
     },

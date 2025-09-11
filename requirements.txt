@@ -3,3 +3,5 @@ de-nina
 shapely
 notify_py
 python-dotenv
+platformdirs
+tomli-w

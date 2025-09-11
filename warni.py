@@ -1,19 +1,79 @@
-import time
-import os
 import ast
+import os
+import time
+import tomli_w
+import tomllib
 from deutschland import nina
 from deutschland.nina.api import warnings_api
-from pprint import pprint
-from notifypy import Notify
-from shapely.geometry import shape, Point
 from dotenv import load_dotenv
+from notifypy import Notify
+from platformdirs import user_config_dir
+from pprint import pprint
+from shapely.geometry import shape, Point
 
-load_dotenv()
-SEEN_PATH = str(os.getenv("SEEN_PATH"))
-ARS = str(os.getenv("ARS"))
-POS = Point(float(os.getenv("LONG")), float(os.getenv("LAT")))
-SHOW_ALL = os.getenv("SHOW_ALL") == "True"
-INTERVAL = int(os.getenv("INTERVAL"))
+APP_NAME = "warni"
+APP_AUTHOR = "borner"
+
+SEEN_PATH = f"/home/{os.getlogin()}/.cache/warni_seen.txt"
+ARS = "000000000000"
+POS = Point(48.5, 9.0)
+SHOW_ALL = False
+INTERVAL = 10
+
+
+def create_config(directory, path):
+    print(
+        "Not configured yet! Please set the following options. They will be written into your configuration directory (e.g. ~/.config/warni/config.toml)"
+    )
+
+    config = {}
+    config["seen_path"] = (
+        input(f"Warning cache file [{SEEN_PATH}] ").strip() or SEEN_PATH
+    )
+
+    print(
+        "\nYou can find your ARS here: https://www.xrepository.de/api/xrepository/urn:de:bund:destatis:bevoelkerungsstatistik:schluessel:rs_2025-09-30/download/Regionalschl_ssel_2025-09-30.md"
+    )
+    config["ars"] = (
+        input(f"Amtlicher Regionalschlüssel (ARS) [{ARS}] ").strip() or ARS
+    )
+    config["long"] = float(input(f"Longitude [{POS.x}] ").strip() or POS.x)
+    config["lat"] = float(input(f"Latitude [{POS.y}] ").strip() or POS.y)
+    config["show_all"] = (
+        input(f"Show all warnings, even outside region [{SHOW_ALL}] ")
+        .strip()
+        .lower()
+        == "true"
+        or SHOW_ALL
+    )
+    config["interval"] = int(
+        input(f"Checking interval in minutes [{INTERVAL}] ").strip() or INTERVAL
+    )
+
+    config["ars"] = config["ars"][:-7] + "0" * 7
+
+    os.makedirs(directory, exist_ok=True)
+    with open(path, "wb") as f:
+        tomli_w.dump(config, f)
+
+
+def load_config():
+    global SEEN_PATH, ARS, POS, SHOW_ALL, INTERVAL
+
+    config_dir = user_config_dir(APP_NAME, APP_AUTHOR)
+    config_path = os.path.join(config_dir, "config.toml")
+
+    if not os.path.isfile(config_path):
+        create_config(config_dir, config_path)
+
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+
+        SEEN_PATH = config["seen_path"]
+        ARS = config["ars"]
+        POS = Point(config["long"], config["lat"])
+        SHOW_ALL = config["show_all"]
+        INTERVAL = config["interval"]
 
 
 class Seen:
@@ -23,7 +83,6 @@ class Seen:
         if os.path.isfile(SEEN_PATH):
             with open(SEEN_PATH, "r") as f:
                 self.seen = ast.literal_eval(f.read())
-                print("loaded", self.seen)
         else:
             self.seen = set()
 
@@ -67,6 +126,7 @@ def add_data(api, seen, data):
 
 
 def notify_user(title, message):
+    print(title)
     notification = Notify()
     notification.title = title
     notification.message = message
@@ -85,40 +145,40 @@ def handle_warning(warning, details):
     notify_user(title, description)
 
 
-def check_services(api, seen):
+# APIs often return 404/etc.
+def try_add_data(api, seen, func, *args):
     try:
-        # Biwapp
-        data = api.get_biwapp_map_data().value
+        data = func(*args).value
         add_data(api, seen, data)
+    except Exception as e:
+        notify_user("Warni Exception", "Exception: %s\n" % e)
 
-        # ARS
-        data = api.get_dashboard(ARS).value
-        add_data(api, seen, data)
 
-        # DWD
-        data = api.get_dwd_map_data().value
-        add_data(api, seen, data)
+def check_services(api, seen):
+    # Biwapp
+    try_add_data(api, seen, api.get_biwapp_map_data)
 
-        # Katwarn
-        data = api.get_katwarn_map_data().value
-        add_data(api, seen, data)
+    # ARS
+    try_add_data(api, seen, api.get_dashboard, ARS)
 
-        # LHP
-        data = api.get_lhp_map_data().value
-        add_data(api, seen, data)
+    # DWD
+    try_add_data(api, seen, api.get_dwd_map_data)
 
-        # Mowas
-        data = api.get_mowas_map_data().value
-        add_data(api, seen, data)
+    # Katwarn
+    try_add_data(api, seen, api.get_katwarn_map_data)
 
-        # Police
-        data = api.get_police_map_data().value
-        add_data(api, seen, data)
-    except nina.ApiException as e:
-        print("Exception: %s\n" % e)
+    # LHP
+    try_add_data(api, seen, api.get_lhp_map_data)
+
+    # Mowas
+    try_add_data(api, seen, api.get_mowas_map_data)
+
+    # Police
+    try_add_data(api, seen, api.get_police_map_data)
 
 
 def main():
+    load_config()
     with nina.ApiClient() as api_client:
         api = warnings_api.WarningsApi(api_client)
         seen = Seen()
